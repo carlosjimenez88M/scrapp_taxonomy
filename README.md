@@ -11,6 +11,43 @@ Zero external dependencies. Pure Python ≥ 3.11.
 
 ---
 
+## Get Started & Documentation
+
+| | |
+|---|---|
+| **[Install](#install)** | uv, pip, or run without installing via `uvx` |
+| **[CLI quickstart](#cli)** | `assess` command, flags, and JSON output |
+| **[Library API](#library)** | `build_service()`, formatters, custom signals |
+| **[Docker](#docker)** | Dev build and production hardening flags |
+| **[Architecture](#architecture)** | Layer diagram and extension points |
+| **[Development](#development)** | Local setup, linting, tests, coverage |
+| **[CI/CD pipeline](#cicd-pipeline)** | What runs on each push and on version tags |
+| **[Releasing](#releasing)** | How to cut a release and publish to PyPI |
+
+**Examples:**
+
+```bash
+# assess a news site and get a text report
+scrapp-taxonomy assess https://cnnespanol.cnn.com/colombia
+
+# pipe the JSON output into jq to extract a specific signal count
+scrapp-taxonomy assess https://www.eltiempo.com --output json \
+  | jq '.page_taxonomy.candidates[] | select(.kind == "article_links") | .count'
+
+# run without installing anything
+uvx scrapp-taxonomy assess https://www.bbc.com/mundo --output json
+
+# use the library in your own scraper
+python - <<'EOF'
+from scrapp_taxonomy import build_service
+result = build_service().assess("https://cnnespanol.cnn.com/colombia")
+print(result.robots_policy.target_allowed)
+print([c.kind for c in result.page_taxonomy.candidates])
+EOF
+```
+
+---
+
 ## Install
 
 ```bash
