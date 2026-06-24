@@ -1,6 +1,6 @@
 [project]
 name = "scrapp-taxonomy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Assess robots.txt constraints and discover extractable public page signals."
 readme = "README.md"
 requires-python = ">=3.11"
