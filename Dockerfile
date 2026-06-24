@@ -5,7 +5,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_DEV=1
 
-WORKDIR /build
+WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
@@ -24,7 +24,7 @@ LABEL org.opencontainers.image.title="scrapp-taxonomy" \
 RUN groupadd --system --gid 1001 scrapp \
  && useradd --system --uid 1001 --gid scrapp --no-create-home --shell /sbin/nologin scrapp
 
-COPY --from=builder --chown=scrapp:scrapp /build/.venv /app/.venv
+COPY --from=builder --chown=scrapp:scrapp /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH"
 
