@@ -104,15 +104,17 @@ jobs:
 
       - name: "④ Smoke test — wheel"
         run: |
+          WHL=$(ls dist/*.whl | head -1)
           uv run --isolated --no-project \
-            --with "dist/*.whl" \
+            --with "$WHL" \
             --with pytest \
             pytest tests/smoke_test.py -v
 
       - name: "⑤ Smoke test — sdist"
         run: |
+          SDIST=$(ls dist/*.tar.gz | head -1)
           uv run --isolated --no-project \
-            --with "dist/*.tar.gz" \
+            --with "$SDIST" \
             --with pytest \
             pytest tests/smoke_test.py -v
 
