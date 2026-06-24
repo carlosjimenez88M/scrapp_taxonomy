@@ -19,7 +19,7 @@ FROM python:3.13-slim AS runtime
 LABEL org.opencontainers.image.title="scrapp-taxonomy" \
       org.opencontainers.image.description="Assess robots.txt constraints and discover extractable public page signals." \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.source="https://github.com/danieljimenez88m/scrapp-taxonomy"
+      org.opencontainers.image.source="https://github.com/carlosjimenez88M/scrapp_taxonomy"
 
 RUN groupadd --system --gid 1001 scrapp \
  && useradd --system --uid 1001 --gid scrapp --no-create-home --shell /sbin/nologin scrapp

@@ -23,10 +23,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/danieljimenez88m/scrapp-taxonomy"
-Repository = "https://github.com/danieljimenez88m/scrapp-taxonomy"
-"Bug Tracker" = "https://github.com/danieljimenez88m/scrapp-taxonomy/issues"
-Changelog = "https://github.com/danieljimenez88m/scrapp-taxonomy/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/carlosjimenez88M/scrapp_taxonomy"
+Repository = "https://github.com/carlosjimenez88M/scrapp_taxonomy"
+"Bug Tracker" = "https://github.com/carlosjimenez88M/scrapp_taxonomy/issues"
+Changelog = "https://github.com/carlosjimenez88M/scrapp_taxonomy/blob/master/CHANGELOG.md"
 
 [project.scripts]
 scrapp-taxonomy = "scrapp_taxonomy.cli:main"
