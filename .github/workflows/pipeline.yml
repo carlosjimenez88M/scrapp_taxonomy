@@ -1,0 +1,209 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Pipeline — scrapp-taxonomy
+#
+# Single workflow that covers the full delivery lifecycle:
+#
+#   quality  →  build-dist  →  publish   (on v* tags)
+#            ↘  docker                   (build + push on non-PR)
+#
+# The quality job runs on all supported Python versions in parallel.
+# build-dist and docker fan out once quality is green.
+# publish only triggers when a version tag (v*) is pushed.
+#
+# PyPI publishing uses OIDC Trusted Publishing — no token stored in secrets.
+# Before the first release, create a "pypi" environment in:
+#   GitHub → Settings → Environments → New environment → name: pypi
+# and configure it in your PyPI project under "Trusted Publishers".
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Pipeline
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1 — Quality
+# Lint, type-check, test, and measure coverage across all Python versions.
+# All downstream jobs depend on this passing.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  quality:
+    name: "Quality — Python ${{ matrix.python-version }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: "① Checkout"
+        uses: actions/checkout@v4
+
+      - name: "② Set up uv + Python ${{ matrix.python-version }}"
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: "③ Install dependencies"
+        run: uv sync --locked --dev
+
+      - name: "④ Lint — ruff check"
+        run: uv run ruff check
+
+      - name: "⑤ Format — ruff format"
+        run: uv run ruff format --check
+
+      - name: "⑥ Type check — mypy"
+        run: uv run mypy src
+
+      - name: "⑦ Test + coverage"
+        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=80
+
+      - name: "⑧ Upload coverage report"
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.13'
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 2 — Build distributions
+# Produces the wheel and source distribution, smoke-tests each against an
+# isolated environment, then uploads the artefacts for the publish job.
+# ─────────────────────────────────────────────────────────────────────────────
+  build-dist:
+    name: "Build — wheel & sdist"
+    needs: quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "① Checkout"
+        uses: actions/checkout@v4
+
+      - name: "② Set up uv"
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: "③ Build wheel and sdist"
+        run: uv build --no-sources
+
+      - name: "④ Smoke test — wheel"
+        run: |
+          uv run --isolated --no-project \
+            --with "dist/*.whl" \
+            --with pytest \
+            pytest tests/smoke_test.py -v
+
+      - name: "⑤ Smoke test — sdist"
+        run: |
+          uv run --isolated --no-project \
+            --with "dist/*.tar.gz" \
+            --with pytest \
+            pytest tests/smoke_test.py -v
+
+      - name: "⑥ Upload distributions"
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 3 — Docker
+# Builds a multi-stage image with a non-root runtime user.
+# Pushes to GHCR on every commit to main/master and on version tags.
+# Pull-request runs only build and smoke-test (no push, no login).
+# ─────────────────────────────────────────────────────────────────────────────
+  docker:
+    name: "Docker — build & push"
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: "① Checkout"
+        uses: actions/checkout@v4
+
+      - name: "② Set up Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "③ Log in to GHCR"
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "④ Extract image metadata"
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: "⑤ Build and optionally push"
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: "⑥ Smoke test image"
+        run: docker run --rm $(docker build -q .) --help
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 4 — Publish
+# Uploads the distributions built in job 2 to PyPI using OIDC Trusted
+# Publishing. Only runs when a v* tag is pushed.
+#
+# Setup checklist (one-time, before first release):
+#   1. GitHub → Settings → Environments → New environment → name: pypi
+#   2. PyPI project → Settings → Trusted Publishers → add this repo/workflow
+# ─────────────────────────────────────────────────────────────────────────────
+  publish:
+    name: "Publish — PyPI"
+    needs: build-dist
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - name: "① Download distributions"
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: "② Publish to PyPI (Trusted Publishing)"
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

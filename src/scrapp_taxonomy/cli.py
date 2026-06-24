@@ -1,28 +1,56 @@
+"""
+Command-line interface for scrapp-taxonomy.
+
+Exposes a single sub-command — ``assess`` — that evaluates a URL against its
+robots.txt policy and reports discoverable page signals. Output can be rendered
+as a plain-text report or as JSON for downstream processing.
+
+Usage::
+
+    scrapp-taxonomy assess <url> [--output json] [--user-agent <ua>] [--timeout <s>]
+                                 [--log-level DEBUG|INFO|WARNING|ERROR]
+"""
+
 from __future__ import annotations
 
+#######################
+# ---- Libraries ---- #
+#######################
 import argparse
-import json
+import logging
+import sys
 from collections.abc import Sequence
-from dataclasses import asdict
 
-from scrapp_taxonomy.domain.models import ScrapeAssessment
-from scrapp_taxonomy.infrastructure.http import HttpPageGateway, HttpRobotsGateway, UrlLibHttpClient
-from scrapp_taxonomy.services.assessment import ScrapeAssessmentService
-from scrapp_taxonomy.services.html_analyzer import StandardHtmlAnalyzer
-from scrapp_taxonomy.services.robots import StandardRobotsPolicyReader
+from scrapp_taxonomy.factory import build_service
+from scrapp_taxonomy.formatters import JsonFormatter, TextFormatter
+
+######################
+# ---- Loggers  ---- #
+######################
+
+logger = logging.getLogger(__name__)
+
+#######################
+# ---- Functions ---- #
+#######################
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Parse *argv* and execute the requested sub-command.
+
+    Returns an exit code: 0 on success, 2 when no sub-command is given.
+    """
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    _configure_logging(args.log_level)
+    logger.debug("CLI invoked with args: %s", vars(args))
+
     if args.command == "assess":
-        service = _build_service(args.user_agent, args.timeout)
+        service = build_service(user_agent=args.user_agent, timeout_seconds=args.timeout)
         assessment = service.assess(args.url)
-        if args.output == "json":
-            print(json.dumps(asdict(assessment), ensure_ascii=False, indent=2))
-        else:
-            print(_format_text_report(assessment))
+        formatter = JsonFormatter() if args.output == "json" else TextFormatter()
+        print(formatter.format(assessment))
         return 0
 
     parser.print_help()
@@ -34,70 +62,31 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="scrapp-taxonomy",
         description="Assess robots.txt boundaries and discover extractable page signals.",
     )
+    parser.add_argument(
+        "--log-level",
+        default="WARNING",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        help="Logging verbosity (default: WARNING).",
+    )
     subparsers = parser.add_subparsers(dest="command")
     assess = subparsers.add_parser("assess", help="Assess a target URL.")
-    assess.add_argument("url")
-    assess.add_argument("--user-agent", default="scrapp-taxonomy/0.1")
-    assess.add_argument("--timeout", type=float, default=15.0)
-    assess.add_argument("--output", choices=("text", "json"), default="text")
+    assess.add_argument("url", help="Fully-qualified URL to assess.")
+    assess.add_argument(
+        "--user-agent", default="scrapp-taxonomy/0.1", help="HTTP User-Agent string."
+    )
+    assess.add_argument("--timeout", type=float, default=15.0, help="Request timeout in seconds.")
+    assess.add_argument(
+        "--output",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text).",
+    )
     return parser
 
 
-def _build_service(user_agent: str, timeout: float) -> ScrapeAssessmentService:
-    client = UrlLibHttpClient(user_agent=user_agent, timeout_seconds=timeout)
-    return ScrapeAssessmentService(
-        robots_gateway=HttpRobotsGateway(client),
-        page_gateway=HttpPageGateway(client),
-        robots_reader=StandardRobotsPolicyReader(),
-        analyzer=StandardHtmlAnalyzer(),
-        user_agent=user_agent,
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=getattr(logging, level),
+        format="%(levelname)-8s %(name)s %(message)s",
     )
-
-
-def _format_text_report(assessment: ScrapeAssessment) -> str:
-    policy = assessment.robots_policy
-    taxonomy = assessment.page_taxonomy
-    lines = [
-        f"Target: {assessment.target_url}",
-        f"Robots: {policy.robots_url} ({policy.availability.value})",
-        f"Allowed for {policy.user_agent}: {'yes' if policy.target_allowed else 'no'}",
-    ]
-
-    if policy.crawl_delay is not None:
-        lines.append(f"Crawl delay: {policy.crawl_delay:g}s")
-    if policy.request_rate:
-        lines.append(f"Request rate: {policy.request_rate}")
-    if policy.sitemaps:
-        lines.append("Sitemaps:")
-        lines.extend(f"  - {url}" for url in policy.sitemaps[:10])
-
-    if policy.matching_groups:
-        lines.append("Matching robots rules:")
-        for group in policy.matching_groups:
-            lines.append(f"  User-agent: {', '.join(group.user_agents)}")
-            if group.allow:
-                lines.append(f"    Allow sample: {', '.join(group.allow[:5])}")
-            if group.disallow:
-                lines.append(f"    Disallow sample: {', '.join(group.disallow[:5])}")
-
-    lines.append(f"Page fetch: {taxonomy.status.value}")
-    if taxonomy.error:
-        lines.append(f"Page note: {taxonomy.error}")
-    if taxonomy.title:
-        lines.append(f"Title: {taxonomy.title}")
-    if taxonomy.meta_description:
-        lines.append(f"Description: {taxonomy.meta_description}")
-    if taxonomy.language:
-        lines.append(f"Language: {taxonomy.language}")
-    if taxonomy.candidates:
-        lines.append("Extractable signals:")
-        for candidate in taxonomy.candidates:
-            lines.append(f"  - {candidate.label}: {candidate.count}")
-            for value in candidate.sample[:5]:
-                lines.append(f"      {value}")
-
-    if assessment.recommendations:
-        lines.append("Recommendations:")
-        lines.extend(f"  - {recommendation}" for recommendation in assessment.recommendations)
-
-    return "\n".join(lines)

@@ -1,5 +1,17 @@
+"""
+robots.txt parsing and crawl policy resolution.
+
+StandardRobotsPolicyReader delegates permission resolution to Python's built-in
+robotparser and augments the result with structured group data (allow/disallow
+rules, crawl-delay) extracted by a hand-rolled line parser.
+"""
+
 from __future__ import annotations
 
+#######################
+# ---- Libraries ---- #
+#######################
+import logging
 from dataclasses import dataclass
 from io import StringIO
 from urllib import robotparser
@@ -12,13 +24,39 @@ from scrapp_taxonomy.domain.models import (
     RobotsPolicy,
 )
 
+######################
+# ---- Loggers  ---- #
+######################
+
+logger = logging.getLogger(__name__)
+
+#####################
+# ---- Classes ---- #
+#####################
+
 
 @dataclass(frozen=True)
 class StandardRobotsPolicyReader:
-    """Read robots.txt through Python's parser and expose human-facing hints."""
+    """Parse robots.txt and resolve crawl permissions for a target URL and user-agent."""
 
     def read(self, target_url: str, robots_resource: HttpResource, user_agent: str) -> RobotsPolicy:
+        """Return a RobotsPolicy for the given target URL.
+
+        Delegates permission resolution to Python's robotparser and enriches the
+        result with crawl-delay, request-rate, sitemaps, and matching rule groups.
+
+        Args:
+            target_url: The page URL being assessed.
+            robots_resource: The raw robots.txt HTTP resource.
+            user_agent: The user-agent string to evaluate permissions for.
+
+        Returns:
+            A :class:`~scrapp_taxonomy.domain.models.RobotsPolicy` with the
+            resolved permission and all relevant metadata.
+        """
         availability = self._availability_for(robots_resource)
+        logger.debug("robots.txt for %s: availability=%s", target_url, availability.value)
+
         if availability is RobotsAvailability.UNAVAILABLE:
             return RobotsPolicy(
                 robots_url=robots_resource.url,
@@ -29,6 +67,7 @@ class StandardRobotsPolicyReader:
             )
 
         if availability is RobotsAvailability.NOT_FOUND:
+            logger.debug("No robots.txt found — allowing by convention")
             return RobotsPolicy(
                 robots_url=robots_resource.url,
                 availability=availability,
@@ -44,10 +83,18 @@ class StandardRobotsPolicyReader:
         raw_crawl_delay = parser.crawl_delay(user_agent)
         crawl_delay = float(raw_crawl_delay) if raw_crawl_delay is not None else None
         request_rate = parser.request_rate(user_agent)
+        allowed = parser.can_fetch(user_agent, target_url)
+
+        logger.debug(
+            "Policy for %s: allowed=%s crawl_delay=%s",
+            target_url,
+            allowed,
+            crawl_delay,
+        )
         return RobotsPolicy(
             robots_url=robots_resource.url,
             availability=availability,
-            target_allowed=parser.can_fetch(user_agent, target_url),
+            target_allowed=allowed,
             user_agent=user_agent,
             crawl_delay=crawl_delay,
             request_rate=str(request_rate) if request_rate else None,
@@ -65,7 +112,13 @@ class StandardRobotsPolicyReader:
 
 
 class _RobotsTxtGroupParser:
+    """Extract user-agent groups from a robots.txt body for structured reporting."""
+
     def parse(self, robots_text: str, user_agent: str) -> list[RobotsGroup]:
+        """Return the groups from *robots_text* that apply to *user_agent*.
+
+        Prefers exact or partial matches over the wildcard (*) group.
+        """
         groups = self._parse_groups(robots_text)
         matches = [group for group in groups if self._matches(group.user_agents, user_agent)]
         wildcard = [group for group in groups if "*" in group.user_agents]
@@ -83,11 +136,7 @@ class _RobotsTxtGroupParser:
             line = raw_line.split("#", 1)[0].strip()
             if not line:
                 self._append_group(groups, current_agents, allow, disallow, crawl_delay)
-                current_agents = []
-                allow = []
-                disallow = []
-                crawl_delay = None
-                seen_rule = False
+                current_agents, allow, disallow, crawl_delay, seen_rule = [], [], [], None, False
                 continue
 
             if ":" not in line:
@@ -99,11 +148,8 @@ class _RobotsTxtGroupParser:
             if field == "user-agent":
                 if seen_rule and current_agents:
                     self._append_group(groups, current_agents, allow, disallow, crawl_delay)
-                    current_agents = []
-                    allow = []
-                    disallow = []
-                    crawl_delay = None
-                    seen_rule = False
+                    current_agents, allow, disallow = [], [], []
+                    crawl_delay, seen_rule = None, False
                 current_agents.append(value.lower())
                 continue
 
@@ -122,7 +168,6 @@ class _RobotsTxtGroupParser:
                 seen_rule = True
 
         self._append_group(groups, current_agents, allow, disallow, crawl_delay)
-
         return groups
 
     @staticmethod

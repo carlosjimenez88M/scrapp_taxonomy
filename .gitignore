@@ -1,9 +1,39 @@
+# ── Python ──────────────────────────────────────────────────────────────────
 .venv/
 __pycache__/
 *.py[cod]
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
+*.egg-info/
+*.pyo
+*.pyd
+
+# ── Build artefacts ──────────────────────────────────────────────────────────
 build/
 dist/
+*.whl
+*.tar.gz
+
+# ── Type / lint caches ───────────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── Test / coverage ──────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+coverage.json
+htmlcov/
+
+# ── IDE / OS ─────────────────────────────────────────────────────────────────
 .DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+.dockerenv
+
+# ── Secrets / env ────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
