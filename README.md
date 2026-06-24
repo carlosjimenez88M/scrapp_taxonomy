@@ -1,9 +1,6 @@
 # scrapp-taxonomy
 
 [![Pipeline](https://github.com/carlosjimenez88M/scrapp_taxonomy/actions/workflows/pipeline.yml/badge.svg?branch=master)](https://github.com/carlosjimenez88M/scrapp_taxonomy/actions/workflows/pipeline.yml)
-[![PyPI version](https://img.shields.io/pypi/v/scrapp-taxonomy.svg)](https://pypi.org/project/scrapp-taxonomy/)
-[![Python versions](https://img.shields.io/pypi/pyversions/scrapp-taxonomy.svg)](https://pypi.org/project/scrapp-taxonomy/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Evaluate a URL before scraping it. The package checks `robots.txt` for permission and then reports what kinds of data are likely extractable from the page — headings, links, images, feeds, article URLs, JSON-LD types, forms — all with counts and samples.
 
