@@ -155,9 +155,7 @@ class _TaxonomyHtmlParser(HTMLParser):
         self._current_script_type = None
         self._text_buffer = []
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_dict = {key.lower(): value or "" for key, value in attrs}
         self._current_tag = tag
         if tag in {"title", "h1", "h2", "h3"}:
